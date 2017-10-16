@@ -30,6 +30,6 @@ result = opreturn.burn(float(send_amount), metadata)
 if 'error' in result:
     print('Error: '+result['error'])
 else:
-    print('TxID: '+result['txid']+'\n'
+    print('TxID: '+result['txid']+'\n')
 
 # vim:ts=4:sw=4:ai:et:si:sts=4
