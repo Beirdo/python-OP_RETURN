@@ -52,9 +52,11 @@ class OpReturn:
     maxBlocks = 10   # maximum number of blocks to try when retrieving data
     timeout = 10     # timeout (in s) when communicating with node
 
-    def __init__(self, coin_name, testnet=False):
+    def __init__(self, coin_name, testnet=False, digits=8, use_message=True):
         self.testnet = testnet
         self.coin_name = coin_name
+        self.digits = digits
+        self.use_message = use_message
         conffile = os.path.join('~', '.%s' % coin_name, '%s.conf' % coin_name)
         self.config_file = os.path.expanduser(conffile)
 
@@ -88,8 +90,8 @@ class OpReturn:
         if metadata_len > self.maxBytes:
             return error_('Metadata has %s bytes but is limited to %s (see self.maxBytes)' % (metadata_len, self.maxBytes))
 
-        if metadata_len > 65536:
-            return error_('This library only supports metadata up to 65536 bytes in size')
+        if metadata_len > 65535:
+            return error_('This library only supports metadata up to 65535 bytes in size')
 
         # Calculate amounts and choose inputs
         output_amount = burn_amount + self.txfee
@@ -136,8 +138,8 @@ class OpReturn:
         if metadata_len > self.maxBytes:
             return error_('Metadata has %s bytes but is limited to %s (see self.maxBytes)' % (metadata_len, self.maxBytes))
 
-        if metadata_len > 65536:
-            return error_('This library only supports metadata up to 65536 bytes in size')
+        if metadata_len > 65535:
+            return error_('This library only supports metadata up to 65535 bytes in size')
 
         # Calculate amounts and choose inputs
         output_amount = send_amount + self.txfee
@@ -391,20 +393,28 @@ class OpReturn:
     def create_txn(self, inputs, outputs, metadata, metadata_pos):
         raw_txn = self.bitcoin_cmd('createrawtransaction', inputs, outputs)
 
-        txn_unpacked = unpack_txn(hex_to_bin(raw_txn))
+        txn = Transaction(self.digits, self.use_message, binary=raw_txn)
+        txn_unpacked = txn.txn
 
-        metadata_len=len(metadata)
+        metadata_len = len(metadata)
+
+        scriptPubKey = BitcoinBuffer()
+        # Here's the OP_RETURN
+        scriptPubKey.pack_uint8(0x6A)
 
         if metadata_len <= 75:
             # length byte + data (https://en.bitcoin.it/wiki/Script)
-            payload = bytearray((metadata_len,)) + metadata
+            scriptPubKey.pack_uint8(metadata_len)
         elif metadata_len <= 256:
             # OP_PUSHDATA1 format
-            payload = b"\x4c" + bytearray((metadata_len,)) + metadata
+            scriptPubKey.pack_uint8(0x4C)
+            scriptPubKey.pack_uint8(metadata_len)
         else:
             # OP_PUSHDATA2 format
-            payload = b"\x4d" + bytearray((metadata_len % 256,)) + \
-                bytearray((int(metadata_len / 256),)) + metadata
+            scriptPubKey.pack_uint8(0x4D)
+            scriptPubKey.pack_uint16(metadata_len)
+
+        scriptPubKey.pack(metadata)
 
         # constrain to valid values
         metadata_pos = min(max(0, metadata_pos), len(txn_unpacked['vout']))
@@ -415,7 +425,8 @@ class OpReturn:
             'scriptPubKey': '6a' + bin_to_hex(payload)
         }]
         
-        return bin_to_hex(pack_txn(txn_unpacked))
+        txn = Transaction(self.digits, self.use_message, txn=txn_unpacked)
+        return bin_to_hex(txn.binary)
 
     def create_burn_txn(self, inputs, outputs, metadata):
         tx = {}
@@ -464,7 +475,8 @@ class OpReturn:
 
             tx['vout'].append(vout)
 
-        return bin_to_hex(pack_txn(tx))
+        txn = Transaction(self.digits, self.use_message, txn=tx)
+        return bin_to_hex(txn.binary)
 
     def sign_send_txn(self, raw_txn):
         signed_txn = self.bitcoin_cmd('signrawtransaction', raw_txn)
@@ -483,7 +495,8 @@ class OpReturn:
 
     def get_mempool_txn(self, txid):
         raw_txn = self.bitcoin_cmd('getrawtransaction', txid)
-        return unpack_txn(hex_to_bin(raw_txn))
+        txn = Transaction(self.digits, self.use_message, binary=raw_txn)
+        return txn.txn
 
     def get_mempool_txns(self):
         txids = self.list_mempool_txns(testnet)
@@ -506,9 +519,8 @@ class OpReturn:
         if err:
             return error_(err)
 
-        block = unpack_block(raw_block['block'])
-
-        return block['txs']
+        block = Block(self.digits, self.use_message, raw_block['block'])
+        return block.block['txs']
 
 
     def bitcoin_check(self):
@@ -575,9 +587,8 @@ def calc_ref(next_height, txid, avoid_txids):
     if clashed: # could not find a good reference
         return None
 
-    tx_ref = ord(txid_binary[start_offset:start_offset + 1]) + \
-        256 * ord(txid_binary[start_offset + 1:start_offset + 2]) + \
-        65536 * txid_offset
+    buffer = BitcoinBuffer(txid_binary, start_offset)
+    tx_ref = buffer.unpack_16() + (txid_offset << 16)
 
     return '%06d-%06d' % (next_height, tx_ref)
 
@@ -590,16 +601,16 @@ def get_ref_parts(ref):
     parts = ref.split('-')
 
     if re.search('[A-Fa-f]', parts[1]):
-        if len(parts[1]) >= 4:
-            txid_binary = hex_to_bin(parts[1][0:4])
-            parts[1] = ord(txid_binary[0:1]) + 256 * ord(txid_binary[1:2]) + \
-                       65536 * 0
-        else:
+        if len(parts[1]) < 4:
             return None
+
+        txid_binary = hex_to_bin(parts[1][0:4])
+        buffer = BitcoinBuffer(txid_binary)
+        parts[1] = buffer.unpack_uint16()
 
     parts = list(map(int, parts))
 
-    if parts[1] > 983039: # 14*65536+65535
+    if parts[1] > 0x0EFFFF: # 14*65536+65535
         return None
 
     return parts
@@ -652,11 +663,14 @@ def match_ref_txid(ref, txid):
     if not parts:
         return None
 
-    txid_offset = int(parts[1] / 65536)
+    txid_offset = int(parts[1] >> 16) * 2
     txid_binary = hex_to_bin(txid)
 
-    txid_part = txid_binary[2 * txid_offset:2 * txid_offset + 2]
-    txid_match = bytearray([parts[1] % 256, int((parts[1] % 65536) / 256)])
+    txid_part = txid_binary[txid_offset:txid_offset + 2]
+
+    buffer = BitcoinBuffer()
+    buffer.pack_uint16(parts[1])
+    txid_match = buffer.data
 
     # exact binary comparison
     return txid_part == txid_match
@@ -664,82 +678,45 @@ def match_ref_txid(ref, txid):
 
 # Unpacking and packing bitcoin blocks and transactions
 
-def unpack_block(binary):
-    buffer = BitcoinBuffer(binary)
-    block = {}
+class Block:
+    def __init__(self, digits, use_message, binary):
+        self.digits = digits
+        self.use_message = use_message
+        self.binary = binary
+        self.block = self.unpack_block()
 
-    block['version'] = buffer.shift_unpack(4, '<L')
-    block['hashPrevBlock'] = bin_to_hex(buffer.shift(32)[::-1])
-    block['hashMerkleRoot'] = bin_to_hex(buffer.shift(32)[::-1])
-    block['time'] = buffer.shift_unpack(4, '<L')
-    block['bits'] = buffer.shift_unpack(4, '<L')
-    block['nonce'] = buffer.shift_unpack(4, '<L')
-    block['tx_count'] = buffer.shift_varint()
+    def unpack_block(self):
+        buffer = BitcoinBuffer(self.binary)
+        block = {
+            'version': buffer.unpack_uint32(),
+            'hashPrevBlock': bin_to_hex(buffer.unpack(32)[::-1]),
+            'hashMerkleRoot': bin_to_hex(buffer.unpack(32)[::-1]),
+            'time': buffer.unpack_uint32(),
+            'bits': buffer.unpack_uint32(),
+            'nonce': buffer.unpack_uint32(),
+            'tx_count': buffer.unpack_varint(),
+            'txs': {},
+        }
 
-    block['txs'] = {}
+        old_ptr = buffer.used()
 
-    old_ptr = buffer.used()
+        while buffer.remaining():
+            transaction = Transaction(self.digits, self.use_message,
+                                      buffer=buffer)
+            transaction = transaction.txn
+            new_ptr = buffer.used()
+            size = new_ptr - old_ptr
 
-    while buffer.remaining():
-        transaction = unpack_txn_buffer(buffer)
-        new_ptr = buffer.used()
-        size = new_ptr - old_ptr
+            sha = hashlib.sha256(binary[old_ptr:new_ptr]).digest()
+            sha2 = hashlib.sha256(sha).digest()
+            txid = bin_to_hex(sha2[::-1])
 
-        raw_txn_binary = binary[old_ptr:old_ptr + size]
-        txid = bin_to_hex(hashlib.sha256(hashlib.sha256(raw_txn_binary).digest()).digest()[::-1])
+            old_ptr = new_ptr
 
-        old_ptr = new_ptr
+            transaction['size'] = size
+            block['txs'][txid] = transaction
 
-        transaction['size'] = size
-        block['txs'][txid] = transaction
-
-    return block
-
-
-def unpack_txn(binary):
-    return unpack_txn_buffer(BitcoinBuffer(binary))
-
-
-def unpack_txn_buffer(buffer):
-    # see: https://en.bitcoin.it/wiki/Transactions
-    txn = {
-        'vin': [],
-        'vout': [],
-    }
-
-    txn['version'] = buffer.shift_unpack(4, '<L') # small-endian 32-bits
-    txn['time'] = buffer.shift_unpack(4, '<L') # small-endian 32-bits
-
-    inputs = buffer.shift_varint()
-    if inputs > 100000: # sanity check
-        return None
-
-    for _ in range(inputs):
-        input={}
-
-        input['txid'] = bin_to_hex(buffer.shift(32)[::-1])
-        input['vout'] = buffer.shift_unpack(4, '<L')
-        length = buffer.shift_varint()
-        input['scriptSig'] = bin_to_hex(buffer.shift(length))
-        input['sequence'] = buffer.shift_unpack(4, '<L')
-
-        txn['vin'].append(input)
-
-    outputs = buffer.shift_varint()
-    if outputs > 100000: # sanity check
-        return None
-
-    for _ in range(outputs):
-        output={}
-
-        output['value'] = float(buffer.shift_uint64()) / 1000000.0
-        length = buffer.shift_varint()
-        output['scriptPubKey'] = bin_to_hex(buffer.shift(length))
-
-        txn['vout'].append(output)
-
-    txn['locktime'] = buffer.shift_unpack(4, '<L')
-    return txn
+        return block
 
 
 def find_spent_txid(txns, spent_txid, spent_vout):
@@ -767,111 +744,208 @@ def find_txn_data(txn_unpacked):
 def get_script_data(scriptPubKeyBinary):
     op_return = None
 
-    if scriptPubKeyBinary[0:1] == b'\x6a':
-        first_ord = ord(scriptPubKeyBinary[1:2])
+    buffer = BitcoinBuffer(scriptPubKeyBinary)
+    opcode = buffer.unpack_uint8()
+    if opcode != 0x6A:
+        return None
 
-        if first_ord <= 75:
-            op_return = scriptPubKeyBinary[2:2 + first_ord]
-        elif first_ord == 0x4c:
-            op_return = scriptPubKeyBinary[3:3 + ord(scriptPubKeyBinary[2:3])]
-        elif first_ord == 0x4d:
-            op_return = scriptPubKeyBinary[4:4 + ord(scriptPubKeyBinary[2:3]) \
-                    + 256 * ord(scriptPubKeyBinary[3:4])]
+    length = buffer.unpack_uint8()
+    if length == 0x4C:
+        length = buffer.unpack_uint8()
+    elif length == 0x4D:
+        length = buffer.unpack_uint16()
+    elif length > 75:
+        # Invalid / not supported
+        return None
 
+    op_return = buffer.unpack(length)
     return op_return
 
 
-def pack_txn(txn):
-    binary = b''
+class Transaction:
+    def __init__(self, digits, use_message, txn=None, binary=None, buffer=None):
+        self.digits = digits
+        self.scaler = 10 ** digits
+        self.use_message = use_messagE
 
-    binary += struct.pack('<L', txn['version'])
-    binary += struct.pack('<L', txn['time'])
+        if binary and not buffer:
+            buffer = BitcoinBuffer(binary)
 
-    binary += pack_varint(len(txn['vin']))
-
-    for input in txn['vin']:
-        binary += hex_to_bin(input['txid'])[::-1]
-        binary += struct.pack('<L', input['vout'])
-        # divide by 2 because it is currently in hex
-        binary += pack_varint(int(len(input['scriptSig'])/2))
-        binary += hex_to_bin(input['scriptSig'])
-        binary += struct.pack('<L', input['sequence'])
-
-    binary += pack_varint(len(txn['vout']))
-
-    for output in txn['vout']:
-        binary += pack_uint64(int(round(output['value']*1000000)))
-        # divide by 2 because it is currently in hex
-        binary += pack_varint(int(len(output['scriptPubKey'])/2))
-        binary += hex_to_bin(output['scriptPubKey'])
-
-    binary += struct.pack('<L', txn['locktime'])
-    binary += hex_to_bin(b"046275726e")
-
-    return binary
+        self.binary = binary
+        self.txn = txn
+        self.buffer = buffer
 
 
-def pack_varint(integer):
-    if integer > 0xFFFFFFFF:
-        packed = b"\xFF" + pack_uint64(integer)
-    elif integer > 0xFFFF:
-        packed = b"\xFE" + struct.pack('<L', integer)
-    elif integer > 0xFC:
-        packed = b"\xFD" + struct.pack('<H', integer)
-    else:
-        packed = struct.pack('B', integer)
+        if txn and not buffer:
+            self.binary = self.pack_txn()
+        elif buffer and not txn:
+            self.txn = self.unpack_txn()
+        else:
+            raise Exception("Invalid parameters, must be one of txn, binary, buffer")
 
-    return packed
+    def pack_txn(self):
+        txn = self.txn
+        buffer = BitcoinBuffer()
 
+        buffer.pack_uint32(txn['version'])
+        buffer.pack_uint32(txn['time'])
 
-def pack_uint64(integer):
-    integer = int(integer)
-    upper = integer >> 32
-    lower = integer & 0xFFFFFFFF
+        buffer.pack_varint(len(txn['vin']))
 
-    return struct.pack('<L', lower) + struct.pack('<L', upper)
+        for input in txn['vin']:
+            buffer.pack(hex_to_bin(input['txid'])[::-1])
+            buffer.pack_uint32(input['vout'])
+            # divide by 2 because it is currently in hex
+            buffer.pack_varint(len(input['scriptSig']) / 2)
+            buffer.pack(hex_to_bin(input['scriptSig']))
+            buffer.pack_uint32(input['sequence'])
+
+        buffer.pack_varint(len(txn['vout']))
+
+        for output in txn['vout']:
+            buffer.pack_uint64(round(output['value'] * self.scaler))
+            # divide by 2 because it is currently in hex
+            buffer.pack_varint(len(output['scriptPubKey']) / 2)
+            buffer.pack(hex_to_bin(output['scriptPubKey']))
+
+        buffer.pack_uint32(txn['locktime'])
+        if self.use_message:
+            buffer.pack(hex_to_bin(b"046275726e"))
+
+        return buffer.data
+
+    def unpack_txn(self):
+        buffer = self.buffer
+
+        # see: https://en.bitcoin.it/wiki/Transactions
+        txn = {
+            'vin': [],
+            'vout': [],
+        }
+
+        txn['version'] = buffer.unpack_uint32() # small-endian 32-bits
+        txn['time'] = buffer.unpack_uint32()    # small-endian 32-bits
+
+        inputs = buffer.unpack_varint()
+        if inputs > 100000: # sanity check
+            return None
+
+        for _ in range(inputs):
+            input={}
+
+            input['txid'] = bin_to_hex(buffer.unpack(32)[::-1])
+            input['vout'] = buffer.unpack_uint32()
+            length = buffer.unpack_varint()
+            input['scriptSig'] = bin_to_hex(buffer.unpack(length))
+            input['sequence'] = buffer.unpack_uint32()
+
+            txn['vin'].append(input)
+
+        outputs = buffer.unpack_varint()
+        if outputs > 100000: # sanity check
+            return None
+
+        for _ in range(outputs):
+            output={}
+
+            output['value'] = float(buffer.unpack_uint64()) / self.scaler
+            length = buffer.unpack_varint()
+            output['scriptPubKey'] = bin_to_hex(buffer.unpack(length))
+
+            txn['vout'].append(output)
+
+        txn['locktime'] = buffer.unpack_uint32()
+        return txn
 
 
 # Helper class for unpacking bitcoin binary data
 
 class BitcoinBuffer():
 
-    def __init__(self, data, ptr=0):
+    def __init__(self, data=None, ptr=0):
+        if data is None:
+            data = b''
         self.data = data
         self.len = len(data)
         self.ptr = ptr
 
-    def shift(self, chars):
+    def unpack(self, chars):
         prefix = self.data[self.ptr:self.ptr + chars]
         self.ptr += chars
-
         return prefix
 
-    def shift_unpack(self, chars, format):
-        unpack = struct.unpack(format, self.shift(chars))
-
+    def unpack_format(self, chars, format):
+        unpack = struct.unpack(format, self.unpack(chars))
         return unpack[0]
 
-    def shift_varint(self):
-        value = self.shift_unpack(1, 'B')
+    def unpack_varint(self):
+        value = self.unpack_uint8()
 
         if value == 0xFF:
-            value = self.shift_uint64()
+            value = self.unpack_uint64()
         elif value == 0xFE:
-            value = self.shift_unpack(4, '<L')
+            value = self.unpack_uint32()
         elif value == 0xFD:
-            value = self.shift_unpack(2, '<H')
+            value = self.unpack_uint16()
 
         return value
 
-    def shift_uint64(self):
-        return self.shift_unpack(4, '<L') + (self.shift_unpack(4, '<L') << 32)
+    def unpack_uint64(self):
+        return self.unpack_uint32() + (self.unpack_uint32() << 32)
+
+    def unpack_uint32(self):
+        return self.unpack_format(4, '<L')
+
+    def unpack_uint16(self):
+        return self.unpack_format(2, '<H')
+
+    def unpack_uint8(self):
+        return self.unpack_format(1, 'B')
+
+    def pack(self, data):
+        self.data += data
+        self.len += len
+
+    def pack_varint(self, number):
+        number = int(number)
+
+        if number > 0xFFFFFFFF:
+            self.pack_uint8(0xFF)
+            self.pack_uint64(number)
+        elif integer > 0xFFFF:
+            self.pack_uint8(0xFE)
+            self.pack_uint32(number)
+        elif integer > 0xFC:
+            self.pack_uint8(0xFD)
+            self.pack_uint16(number)
+        else:
+            self.pack_uint8(number)
+        
+    def pack_uint64(self, number):
+        number = int(number)
+        self.pack_uint32(number & 0xFFFFFFFF)   # lower
+        self.pack_uint32(number >> 32)          # upper
+
+    def pack_uint32(self, number):
+        number = int(number) & 0xFFFFFFFF
+        self.data += struct.pack('<L', number)
+        self.len += 4
+
+    def pack_uint16(self, number):
+        number = int(number) & 0xFFFF
+        self.data += struct.pack('<H', number)
+        self.len += 2
+
+    def pack_uint8(self, number):
+        number = int(number) & 0xFF
+        self.data += struct.pack('B', number)
+        self.len += 1
 
     def used(self):
         return min(self.ptr, self.len)
 
     def remaining(self):
-        return max(self.len-self.ptr, 0)
+        return max(self.len - self.ptr, 0)
 
 
 def hex_to_bin(hex):

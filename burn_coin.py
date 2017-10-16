@@ -14,6 +14,10 @@ parser.add_argument('--message', '-m', default="Burning coin",
                     help="Message to embed in transaction")
 parser.add_argument('--testnet', '-T', action='store_true',
                     help="Use testnet rather than mainnet")
+parser.add_argument('--digits', '-d', type=float, default=8,
+                    help="Digits to right of . (bitcoin=8, peercoin=6)")
+parser.add_argument('--no-message', '-M', action='store_false',
+                    dest="use_message", help="Disable txn message")
 args = parser.parse_args()
 
 if args.amount <= 0.0:
@@ -23,7 +27,7 @@ if args.amount <= 0.0:
 if not args.message:
     args.message = "Burning coin"
 
-opreturn = OpReturn(args.coin, args.testnet)
+opreturn = OpReturn(args.coin, args.testnet, args.digits, args.use_message)
 metadata_from_hex = hex_to_bin(args.message)
 if metadata_from_hex is not None:
     args.message = metadata_from_hex
