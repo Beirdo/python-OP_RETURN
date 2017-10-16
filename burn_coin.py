@@ -1,35 +1,37 @@
 #! /usr/bin/env python
 
-import sys, string
+import sys
+import string
+import argparse
+
 from OP_RETURN import OpReturn, hex_to_bin
 
+parser = argparse.ArgumentParser(description="Burn coins")
+parser.add_argument('--coin', '-c', required=True, help="Coin name")
+parser.add_argument('--amount', '-a', required=True, type=float,
+                    help="Amount of coin to burn")
+parser.add_argument('--message', '-m', default="Burning coin",
+                    help="Message to embed in transaction")
+parser.add_argument('--testnet', '-T', action='store_true',
+                    help="Use testnet rather than mainnet")
+args = parser.parse_args()
 
-if len(sys.argv)<4:
-    sys.exit(
-'''Usage:
-python burn_coin.py <coinname> <burn-amount> <metadata> <testnet (optional)>
+if args.amount <= 0.0:
+    print("Invalid burn amount (> 0.0)")
+    sys.exit(1)
 
-Examples:
-python burn_coin.py bitcoin 0.001 'Hello, blockchain!'
-python burn_coin.py ppcoin 0.001 48656c6c6f2c20626c6f636b636861696e21
-python burn_coin.py MudCoin 0.001 'Hello, testnet blockchain!' 1'''
-    )
+if not args.message:
+    args.message = "Burning coin"
 
-dummy, coin_name, burn_amount, metadata = sys.argv[0:4]
-if len(sys.argv)>4:
-    testnet=bool(sys.argv[4])
-else:
-    testnet=False
-
-opreturn = OpReturn(coin_name, testnet)
-metadata_from_hex = hex_to_bin(metadata)
+opreturn = OpReturn(args.coin, args.testnet)
+metadata_from_hex = hex_to_bin(args.message)
 if metadata_from_hex is not None:
-    metadata = metadata_from_hex
+    args.message = metadata_from_hex
 
-result = opreturn.burn(float(send_amount), metadata)
+result = opreturn.burn(args.amount, args.message)
 if 'error' in result:
-    print('Error: '+result['error'])
+    print('Error: %s' % result['error'])
 else:
-    print('TxID: '+result['txid']+'\n')
+    print('TxID: %s' % result['txid'])
 
 # vim:ts=4:sw=4:ai:et:si:sts=4

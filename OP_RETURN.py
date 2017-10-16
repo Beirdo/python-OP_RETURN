@@ -70,13 +70,13 @@ class OpReturn:
             raise Exception("No usable RPC setup in %s" % self.config_file)
 
         self.url = 'http://%s:%s/' % (self.ip, self.port)
-        self.session = requests.session
+        self.session = requests.Session()
         self.session.auth = (self.user, self.password)
         self.session.timeout = self.timeout
 
     def burn(self, burn_amount, metadata):
         # Validate some parameters
-        err = self.bitcoin_check():
+        err = self.bitcoin_check()
         if err:
             return error_(err)
 
@@ -95,8 +95,7 @@ class OpReturn:
         output_amount = burn_amount + self.txfee
 
         inputs_spend = self.select_inputs(output_amount)
-
-        err = inputs_send.get('error', None)
+        err = inputs_spend.get('error', None)
         if err:
             return error_(err)
 
@@ -104,7 +103,7 @@ class OpReturn:
 
         # Build the raw transaction
         outputs = {
-            "burn": send_amount
+            "burn": burn_amount,
         }
 
         if change_amount >= self.dust:
@@ -119,7 +118,7 @@ class OpReturn:
 
     def send(self, send_address, send_amount, metadata):
         # Validate some parameters
-        err = self.bitcoin_check():
+        err = self.bitcoin_check()
         if err:
             return error_(err)
 
@@ -173,7 +172,7 @@ class OpReturn:
         # of the data.
 
         # Validate parameters and get change address
-        err = self.bitcoin_check():
+        err = self.bitcoin_check()
         if err:
             return error_(err)
 
@@ -252,7 +251,7 @@ class OpReturn:
 
     def retrieve(self, ref, max_results=1):
         # Validate parameters and get status of Bitcoin Core
-        err = self.bitcoin_check():
+        err = self.bitcoin_check()
         if err:
             return error_(err)
 
@@ -520,7 +519,7 @@ class OpReturn:
 
         return 'Please check Bitcoin Core is running and class constants are set correctly'
 
-    def bitcoin_cmd(self, coin_name, command, *args):
+    def bitcoin_cmd(self, command, *args):
         request={
             'id': "%s-%s" % (int(time.time()), random.randint(100000,999999)),
             'method': command,
@@ -577,7 +576,7 @@ def calc_ref(next_height, txid, avoid_txids):
         return None
 
     tx_ref = ord(txid_binary[start_offset:start_offset + 1]) + \
-        256 * ord(txid_binary[start_offset + 1:start_offset + 2]) +
+        256 * ord(txid_binary[start_offset + 1:start_offset + 2]) + \
         65536 * txid_offset
 
     return '%06d-%06d' % (next_height, tx_ref)
