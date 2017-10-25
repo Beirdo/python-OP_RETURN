@@ -52,7 +52,8 @@ class OpReturn:
     maxBlocks = 10   # maximum number of blocks to try when retrieving data
     timeout = 10     # timeout (in s) when communicating with node
 
-    def __init__(self, coin_name, testnet=False, digits=8, use_message=True):
+    def __init__(self, coin_name, testnet=False, digits=8, use_message=True,
+                 txfee=None, confirmations=None):
         self.testnet = testnet
         self.coin_name = coin_name
         self.digits = digits
@@ -75,6 +76,10 @@ class OpReturn:
         self.session = requests.Session()
         self.session.auth = (self.user, self.password)
         self.session.timeout = self.timeout
+        if txfee is not None:
+            self.txfee = float(txfee)
+        if confirmations is not None:
+            self.confirmations = int(confirmations)
 
     def burn(self, burn_amount, metadata):
         # Validate some parameters
@@ -114,6 +119,60 @@ class OpReturn:
 
         raw_txn = self.create_burn_txn(inputs_spend['inputs'], outputs,
                                        metadata)
+
+        # Sign and send the transaction, return result
+        return self.sign_send_txn(raw_txn)
+
+    def estimate_fee(self, inputs):
+        # Estimate
+        txsize = inputs['count'] * 41 + 100
+        txfee = int(1 + int(txsize / 10000.0)) * self.txfee
+        return txfee
+
+    def defrag_send(self, send_address, send_amount, max_count=None):
+        # Validate some parameters
+        err = self.bitcoin_check()
+        if err:
+            return error_(err)
+
+        result = self.bitcoin_cmd('validateaddress', send_address)
+        invalid = result.get('invalid', False)
+        if invalid:
+            return error_('Send address could not be validated: %s' %
+                          send_address)
+
+        if send_amount <= 0.0:
+            inputs_spend = self.select_all_inputs(send_address, max_count)
+            err = inputs_spend.get('error', None)
+            if err:
+                return error_(err)
+            output_amount = inputs_spend['total']
+            send_amount = output_amount - self.estimate_fee(inputs_spend)
+        else:
+            # Calculate amounts and choose inputs
+            output_amount = send_amount + 10.0
+            inputs_spend = self.select_inputs(output_amount, send_address)
+
+            err = inputs_spend.get('error', None)
+            if err:
+                return error_(err)
+            output_amount = send_amount + self.estimate_fee(inputs_spend)
+
+        change_amount = inputs_spend['total'] - output_amount
+
+        # Build the raw transaction
+        outputs = {send_address: send_amount}
+
+        if change_amount >= self.dust:
+            change_address = self.bitcoin_cmd('getaccountaddress', 'change')
+            outputs[change_address] = change_amount
+
+        print(inputs_spend)
+        print(inputs_spend['count'])
+        print(outputs)
+            
+        raw_txn = self.bitcoin_cmd('createrawtransaction',
+                                   inputs_spend['inputs'], outputs)
 
         # Sign and send the transaction, return result
         return self.sign_send_txn(raw_txn)
@@ -361,11 +420,15 @@ class OpReturn:
 
         return results
 
-    def select_inputs(self, total_amount):
+    def select_inputs(self, total_amount, send_address=None):
         # List and sort unspent inputs by priority
         unspent_inputs = self.bitcoin_cmd('listunspent', 0)
         if not isinstance(unspent_inputs, list):
             return error_('Could not retrieve list of unspent inputs')
+
+        if send_address:
+            unspent_inputs = [x for x in unspent_inputs
+                              if x['address'] != send_address]
 
         unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
                             reverse=True)
@@ -388,6 +451,40 @@ class OpReturn:
         return {
             'inputs': inputs_spend,
             'total': input_amount,
+        }
+
+    def select_all_inputs(self, send_address=None, max_count=None):
+        # List and sort unspent inputs by priority
+        unspent_inputs = self.bitcoin_cmd('listunspent', 0)
+        if not isinstance(unspent_inputs, list):
+            return error_('Could not retrieve list of unspent inputs')
+
+        if send_address:
+            unspent_inputs = [x for x in unspent_inputs
+                              if x['address'] != send_address and
+                                 x['confirmations'] >= self.confirmations]
+
+        unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
+                            reverse=True)
+
+        # Identify which inputs should be spent
+        inputs_spend = []
+        input_amount = 0
+        input_count = 0
+
+        for unspent_input in unspent_inputs:
+            inputs_spend.append(unspent_input)
+
+            input_amount += unspent_input['amount']
+            input_count += 1
+            if max_count and input_count >= max_count:
+                break
+
+        # Return the successful result
+        return {
+            'inputs': inputs_spend,
+            'total': input_amount,
+            'count': input_count,
         }
 
     def create_txn(self, inputs, outputs, metadata, metadata_pos):
@@ -479,6 +576,9 @@ class OpReturn:
         return bin_to_hex(txn.binary)
 
     def sign_send_txn(self, raw_txn):
+        print(raw_txn)
+        print(len(raw_txn))
+
         signed_txn = self.bitcoin_cmd('signrawtransaction', raw_txn)
         complete = signed_txn.get('complete', False)
         if not complete:
@@ -766,7 +866,7 @@ class Transaction:
     def __init__(self, digits, use_message, txn=None, binary=None, buffer=None):
         self.digits = digits
         self.scaler = 10 ** digits
-        self.use_message = use_messagE
+        self.use_message = use_message
 
         if binary and not buffer:
             buffer = BitcoinBuffer(binary)
