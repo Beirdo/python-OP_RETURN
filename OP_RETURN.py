@@ -584,7 +584,13 @@ class OpReturn:
         if not complete:
             return error_('Could not sign the transaction')
 
-        send_txid = self.bitcoin_cmd('sendrawtransaction', signed_txn['hex'])
+        with open("rawtransaction.txt", "w") as f:
+            f.write(signed_txn['hex'])
+
+        return self.send_txn(signed_txn['hex'])
+
+    def send_txn(self, signed_txn_hex):
+        send_txid = self.bitcoin_cmd('sendrawtransaction', signed_txn_hex)
         if not (isinstance(send_txid, basestring) and len(send_txid) == 64):
             return error_('Could not send the transaction')
 
