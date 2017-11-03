@@ -169,6 +169,9 @@ class OpReturn:
 
         print(inputs_spend)
         print(inputs_spend['count'])
+        if not inputs_spend['count']:
+            return None
+
         print(outputs)
             
         raw_txn = self.bitcoin_cmd('createrawtransaction',
