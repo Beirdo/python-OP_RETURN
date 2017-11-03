@@ -28,7 +28,9 @@ opreturn = OpReturn(args.coin, args.testnet, args.digits, args.use_message,
                     args.fee, args.confirmations)
 
 result = opreturn.defrag_send(args.to, args.amount, args.max_tx)
-if 'error' in result:
+if not result:
+    print('No transaction made, no inputs available')
+elif 'error' in result:
     print('Error: %s' % result['error'])
 else:
     print('TxID: %s' % result['txid'])
