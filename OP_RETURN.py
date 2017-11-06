@@ -35,6 +35,7 @@ import re
 import hashlib
 import base58
 import requests
+import logging
 
 # Python 2-3 compatibility logic
 
@@ -43,6 +44,7 @@ try:
 except NameError:
     basestring = str
 
+logger = logging.getLogger(__name__)
 
 class OpReturn:
     ip = '127.0.0.1' # IP address of your bitcoin node
@@ -127,9 +129,11 @@ class OpReturn:
         # Estimate
         txsize = inputs['count'] * 41 + 100
         txfee = int(1 + int(txsize / 10000.0)) * self.txfee
+        logger.info("Estimated fees: %s" % txfee)
         return txfee
 
-    def defrag_send(self, send_address, send_amount, max_count=None):
+    def defrag_send(self, send_address, send_amount, max_count=None,
+                    max_amount=None):
         # Validate some parameters
         err = self.bitcoin_check()
         if err:
@@ -142,7 +146,8 @@ class OpReturn:
                           send_address)
 
         if send_amount <= 0.0:
-            inputs_spend = self.select_all_inputs(send_address, max_count)
+            inputs_spend = self.select_all_inputs(send_address, max_count,
+                                                  max_amount)
             err = inputs_spend.get('error', None)
             if err:
                 return error_(err)
@@ -151,7 +156,8 @@ class OpReturn:
         else:
             # Calculate amounts and choose inputs
             output_amount = send_amount + 10.0
-            inputs_spend = self.select_inputs(output_amount, send_address)
+            inputs_spend = self.select_inputs(output_amount, send_address,
+                                              max_amoun)
 
             err = inputs_spend.get('error', None)
             if err:
@@ -167,12 +173,15 @@ class OpReturn:
             change_address = self.bitcoin_cmd('getaccountaddress', 'change')
             outputs[change_address] = change_amount
 
-        print(inputs_spend)
-        print(inputs_spend['count'])
+        logger.debug("Inputs to spend: %s" % inputs_spend)
+        logger.info("Number of inputs selected: %s" % inputs_spend['count'])
+        logger.info("Output Amount: %.8f" % output_amount)
+        if change_amount:
+            logger.info("Change Amount: %.8f" % change_amount)
         if not inputs_spend['count']:
             return None
 
-        print(outputs)
+        logger.debug("Outputs: %s" % outputs)
             
         raw_txn = self.bitcoin_cmd('createrawtransaction',
                                    inputs_spend['inputs'], outputs)
@@ -423,7 +432,7 @@ class OpReturn:
 
         return results
 
-    def select_inputs(self, total_amount, send_address=None):
+    def select_inputs(self, total_amount, send_address=None, max_amount=None):
         # List and sort unspent inputs by priority
         unspent_inputs = self.bitcoin_cmd('listunspent', 0)
         if not isinstance(unspent_inputs, list):
@@ -432,6 +441,9 @@ class OpReturn:
         if send_address:
             unspent_inputs = [x for x in unspent_inputs
                               if x['address'] != send_address]
+        if max_amount:
+            unspent_inputs = [x for x in unspend_inputs
+                              if x['amount'] <= max_amount]
 
         unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
                             reverse=True)
@@ -454,9 +466,11 @@ class OpReturn:
         return {
             'inputs': inputs_spend,
             'total': input_amount,
+            'count': len(inputs_spend)
         }
 
-    def select_all_inputs(self, send_address=None, max_count=None):
+    def select_all_inputs(self, send_address=None, max_count=None,
+                          max_amount=None):
         # List and sort unspent inputs by priority
         unspent_inputs = self.bitcoin_cmd('listunspent', 0)
         if not isinstance(unspent_inputs, list):
@@ -466,6 +480,9 @@ class OpReturn:
             unspent_inputs = [x for x in unspent_inputs
                               if x['address'] != send_address and
                                  x['confirmations'] >= self.confirmations]
+        if max_amount:
+            unspent_inputs = [x for x in unspend_inputs
+                              if x['amount'] <= max_amount]
 
         unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
                             reverse=True)
@@ -579,8 +596,8 @@ class OpReturn:
         return bin_to_hex(txn.binary)
 
     def sign_send_txn(self, raw_txn):
-        print(raw_txn)
-        print(len(raw_txn))
+        logger.debug("Raw transaction: %s" % raw_txn)
+        logger.info("Length of raw transaction: %s" % len(raw_txn))
 
         signed_txn = self.bitcoin_cmd('signrawtransaction', raw_txn)
         complete = signed_txn.get('complete', False)
@@ -590,6 +607,7 @@ class OpReturn:
         with open("rawtransaction.txt", "w") as f:
             f.write(signed_txn['hex'])
 
+        logger.info("Length of signed transaction: %s" % len(signed_txn['hex']))
         return self.send_txn(signed_txn['hex'])
 
     def send_txn(self, signed_txn_hex):
@@ -641,11 +659,14 @@ class OpReturn:
         return 'Please check Bitcoin Core is running and class constants are set correctly'
 
     def bitcoin_cmd(self, command, *args):
-        request={
+        request = {
             'id': "%s-%s" % (int(time.time()), random.randint(100000,999999)),
             'method': command,
             'params': args,
         }
+
+        logger.info("Sending command: %s" % command)
+        logger.debug("Sending request: %s" % request)
 
         try:
             raw_result = self.session.post(self.url, json=request)
@@ -654,7 +675,7 @@ class OpReturn:
         except Exception as e:
             result = { "error": "ERROR: %s" % str(e) }
 
-        print(result)
+        logger.debug("Response to %s command: %s" % (command, result))
         return result
 
 
