@@ -30,7 +30,8 @@ def setupLogging(verbose=False, quiet=False):
 
     rootLogger = logging.getLogger(None)
     rootLogger.addHandler(fileHandler)
-    rootLogger.addHandler(consoleHandler)
+    if not quiet:
+        rootLogger.addHandler(consoleHandler)
     rootLogger.setLevel(logging.DEBUG)
 
 def main():
