@@ -54,7 +54,7 @@ def main():
     parser.add_argument('--fee', '-f', type=float, help='TX Fees')
     parser.add_argument('--confirmations', '-C', type=int, default=100,
                         help='Minimum confirmations')
-    parser.add_argument('--max-amount', 'A', type=float,
+    parser.add_argument('--max-amount', '-A', type=float,
                         help="Maximum amount of coin per input")
     args = parser.parse_args()
 
