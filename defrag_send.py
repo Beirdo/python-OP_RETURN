@@ -40,6 +40,8 @@ def main():
                         help="Turn on debug logging")
     parser.add_argument('--quiet', '-q', action="store_true",
                         help="Shut off console logging")
+    parser.add_argument('--dryrun', '-n', action="store_true",
+                        help="Do not submit transaction")
     parser.add_argument('--coin', '-c', required=True, help="Coin name")
     parser.add_argument('--amount', '-a', required=True, type=float,
                         help="Amount of coin to burn")
@@ -53,8 +55,10 @@ def main():
     parser.add_argument('--max-tx', '-m', type=int, default=0,
                         help="Maximum number of input transactions")
     parser.add_argument('--fee', '-f', type=float, help='TX Fees')
-    parser.add_argument('--confirmations', '-C', type=int, default=100,
+    parser.add_argument('--min-confirmations', '-C', type=int, default=100,
                         help='Minimum confirmations')
+    parser.add_argument('--max-confirmations', '-D', type=int,
+                        help='Maximum confirmations')
     parser.add_argument('--max-amount', '-A', type=float,
                         help="Maximum amount of coin per input")
     args = parser.parse_args()
@@ -62,18 +66,20 @@ def main():
     setupLogging(args.verbose, args.quiet)
 
     logger.info("Defragging %s, Sending to %s" % (args.coin, args.to))
-    logger.info("max inputs: %s, base fee: %s, min confirms: %s" %
-                (args.max_tx, args.fee, args.confirmations))
+    logger.info("max inputs: %s, base fee: %s, min confirms: %s, max confirms: %s" %
+                (args.max_tx, args.fee, args.min_confirmations,
+                 args.max_confirmations))
     if args.amount:
         logger.info("max amount to send: %s" % args.amount)
     else:
         logger.info("No max amount")
 
     opreturn = OpReturn(args.coin, args.testnet, args.digits, args.use_message,
-                        args.fee, args.confirmations)
+                        args.fee, args.min_confirmations,
+                        args.max_confirmations)
 
     result = opreturn.defrag_send(args.to, args.amount, args.max_tx,
-                                  args.max_amount)
+                                  args.max_amount, args.dryrun)
     if not result:
         logger.info('No transaction made, no inputs available')
     elif 'error' in result:

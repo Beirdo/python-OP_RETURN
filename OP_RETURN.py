@@ -55,7 +55,7 @@ class OpReturn:
     timeout = 10     # timeout (in s) when communicating with node
 
     def __init__(self, coin_name, testnet=False, digits=8, use_message=True,
-                 txfee=None, confirmations=None):
+                 txfee=None, min_confirmations=None, max_confirmations=None):
         self.testnet = testnet
         self.coin_name = coin_name
         self.digits = digits
@@ -80,8 +80,12 @@ class OpReturn:
         self.session.timeout = self.timeout
         if txfee is not None:
             self.txfee = float(txfee)
-        if confirmations is not None:
-            self.confirmations = int(confirmations)
+        self.min_confirmations = 0
+        self.max_confirmations = 1000000000
+        if min_confirmations is not None:
+            self.min_confirmations = int(min_confirmations)
+        if max_confirmations is not None:
+            self.max_confirmations = int(max_confirmations)
 
     def burn(self, burn_amount, metadata):
         # Validate some parameters
@@ -133,7 +137,7 @@ class OpReturn:
         return txfee
 
     def defrag_send(self, send_address, send_amount, max_count=None,
-                    max_amount=None):
+                    max_amount=None, dryrun=None):
         # Validate some parameters
         err = self.bitcoin_check()
         if err:
@@ -187,7 +191,9 @@ class OpReturn:
                                    inputs_spend['inputs'], outputs)
 
         # Sign and send the transaction, return result
-        return self.sign_send_txn(raw_txn)
+        if not dryrun:
+            return self.sign_send_txn(raw_txn)
+        return None
 
     def send(self, send_address, send_amount, metadata):
         # Validate some parameters
@@ -479,7 +485,8 @@ class OpReturn:
         if send_address:
             unspent_inputs = [x for x in unspent_inputs
                               if x['address'] != send_address and
-                                 x['confirmations'] >= self.confirmations]
+                                 x['confirmations'] >= self.min_confirmations and
+                                 x['confirmations'] <= self.max_confirmations]
         if max_amount:
             unspent_inputs = [x for x in unspend_inputs
                               if x['amount'] <= max_amount]
