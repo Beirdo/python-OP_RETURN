@@ -137,7 +137,7 @@ class OpReturn:
         return txfee
 
     def defrag_send(self, send_address, send_amount, max_count=None,
-                    max_amount=None, dryrun=None):
+                    min_input=None, max_input=None, dryrun=None):
         # Validate some parameters
         err = self.bitcoin_check()
         if err:
@@ -151,7 +151,7 @@ class OpReturn:
 
         if send_amount <= 0.0:
             inputs_spend = self.select_all_inputs(send_address, max_count,
-                                                  max_amount)
+                                                  min_input, max_input)
             err = inputs_spend.get('error', None)
             if err:
                 return error_(err)
@@ -161,7 +161,7 @@ class OpReturn:
             # Calculate amounts and choose inputs
             output_amount = send_amount + 10.0
             inputs_spend = self.select_inputs(output_amount, send_address,
-                                              max_amoun)
+                                              min_input, max_input)
 
             err = inputs_spend.get('error', None)
             if err:
@@ -447,9 +447,16 @@ class OpReturn:
         if send_address:
             unspent_inputs = [x for x in unspent_inputs
                               if x['address'] != send_address]
-        if max_amount:
-            unspent_inputs = [x for x in unspend_inputs
-                              if x['amount'] <= max_amount]
+
+        if not min_input:
+            min_input = 0
+
+        if not max_input:
+            max_input = 100e9
+
+        unspent_inputs = [x for x in unspent_inputs
+                          if x['amount'] <= max_input and
+                             x['amount'] >= min_input]
 
         unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
                             reverse=True)
@@ -476,7 +483,7 @@ class OpReturn:
         }
 
     def select_all_inputs(self, send_address=None, max_count=None,
-                          max_amount=None):
+                          min_input=None, max_input=None):
         # List and sort unspent inputs by priority
         unspent_inputs = self.bitcoin_cmd('listunspent', 0)
         if not isinstance(unspent_inputs, list):
@@ -492,9 +499,15 @@ class OpReturn:
 
         logger.info("After address/confirmation filter: %s" % len(unspent_inputs))
 
-        if max_amount:
-            unspent_inputs = [x for x in unspent_inputs
-                              if x['amount'] <= max_amount]
+        if not min_input:
+            min_input = 0
+
+        if not max_input:
+            max_input = 100e9
+
+        unspent_inputs = [x for x in unspent_inputs
+                          if x['amount'] <= max_input and
+                             x['amount'] >= min_input]
 
         logger.info("After amount filter: %s" % len(unspent_inputs))
 

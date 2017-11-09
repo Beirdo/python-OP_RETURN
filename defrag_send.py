@@ -59,18 +59,25 @@ def main():
                         help='Minimum confirmations')
     parser.add_argument('--max-confirmations', '-D', type=int,
                         help='Maximum confirmations')
-    parser.add_argument('--max-amount', '-A', type=float,
+    parser.add_argument('--min-input', '-i', type=float,
+                        help="Minimum amount of coin per input")
+    parser.add_argument('--max-input', '-I', type=float,
                         help="Maximum amount of coin per input")
     args = parser.parse_args()
 
     setupLogging(args.verbose, args.quiet)
 
     logger.info("Defragging %s, Sending to %s" % (args.coin, args.to))
-    logger.info("max inputs: %s, base fee: %s, min confirms: %s, max confirms: %s" %
-                (args.max_tx, args.fee, args.min_confirmations,
-                 args.max_confirmations))
-    if args.max_amount:
-        logger.info("Max amount per input: %s" % args.max_amount)
+    logger.info("max input count: %s, base fee: %s" %
+                (args.max_tx, args.fee))
+    logger.info("min confirms: %s, max confirms: %s" %
+                (args.min_confirmations, args.max_confirmations))
+
+    if args.min_input:
+        logger.info("Min amount per input: %s" % args.min_input)
+
+    if args.max_input:
+        logger.info("Max amount per input: %s" % args.max_input)
 
     if args.amount:
         logger.info("max amount to send: %s" % args.amount)
@@ -82,7 +89,7 @@ def main():
                         args.max_confirmations)
 
     result = opreturn.defrag_send(args.to, args.amount, args.max_tx,
-                                  args.max_amount, args.dryrun)
+                                  args.min_input, args.max_input, args.dryrun)
     if not result:
         logger.info('No transaction made, no inputs available')
     elif 'error' in result:
