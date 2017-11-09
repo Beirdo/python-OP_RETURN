@@ -482,14 +482,21 @@ class OpReturn:
         if not isinstance(unspent_inputs, list):
             return error_('Could not retrieve list of unspent inputs')
 
+        logger.info("Raw input count: %s" % len(unspent_inputs))
+
         if send_address:
             unspent_inputs = [x for x in unspent_inputs
-                              if x['address'] != send_address and
+                              if x.get('address', None) != send_address and
                                  x['confirmations'] >= self.min_confirmations and
                                  x['confirmations'] <= self.max_confirmations]
+
+        logger.info("After address/confirmation filter: %s" % len(unspent_inputs))
+
         if max_amount:
-            unspent_inputs = [x for x in unspend_inputs
+            unspent_inputs = [x for x in unspent_inputs
                               if x['amount'] <= max_amount]
+
+        logger.info("After amount filter: %s" % len(unspent_inputs))
 
         unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
                             reverse=True)

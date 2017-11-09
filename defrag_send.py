@@ -69,6 +69,9 @@ def main():
     logger.info("max inputs: %s, base fee: %s, min confirms: %s, max confirms: %s" %
                 (args.max_tx, args.fee, args.min_confirmations,
                  args.max_confirmations))
+    if args.max_amount:
+        logger.info("Max amount per input: %s" % args.max_amount)
+
     if args.amount:
         logger.info("max amount to send: %s" % args.amount)
     else:
