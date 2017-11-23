@@ -123,6 +123,11 @@ class OpReturn:
             change_address = self.bitcoin_cmd('getaccountaddress', 'change')
             outputs[change_address] = change_amount
 
+        logger.debug("Inputs to spend: %s" % inputs_spend)
+        logger.info("Number of inputs selected: %s" % inputs_spend['count'])
+        logger.info("Burn Amount: %.8f" % burn_amount)
+	logger.info("Outputs: %s" % outputs)
+
         raw_txn = self.create_burn_txn(inputs_spend['inputs'], outputs,
                                        metadata)
 
@@ -202,7 +207,7 @@ class OpReturn:
             return None
 
         logger.debug("Outputs: %s" % outputs)
-            
+
         raw_txn = self.bitcoin_cmd('createrawtransaction',
                                    inputs_spend['inputs'], outputs)
 
@@ -252,7 +257,7 @@ class OpReturn:
         if change_amount >= self.dust:
             change_address = self.bitcoin_cmd('getaccountaddress', 'change')
             outputs[change_address] = change_amount
-            
+
         raw_txn = self.create_txn(inputs_spend['inputs'], outputs, metadata,
                                   len(outputs))
 
@@ -460,9 +465,19 @@ class OpReturn:
         if not isinstance(unspent_inputs, list):
             return error_('Could not retrieve list of unspent inputs')
 
+        logger.info("Raw input count: %s" % len(unspent_inputs))
+
         if send_address:
             unspent_inputs = [x for x in unspent_inputs
-                              if x['address'] != send_address]
+                              if x.get('address', None) != send_address]
+
+        logger.info("After address filter: %s" % len(unspent_inputs))
+
+        unspent_inputs = [x for x in unspent_inputs
+                          if x['confirmations'] >= self.min_confirmations and
+                             x['confirmations'] <= self.max_confirmations]
+
+        logger.info("After confirmation filter: %s" % len(unspent_inputs))
 
         if not min_input:
             min_input = 0
@@ -473,6 +488,8 @@ class OpReturn:
         unspent_inputs = [x for x in unspent_inputs
                           if x['amount'] <= max_input and
                              x['amount'] >= min_input]
+
+	logger.info("After amount filter: %s" % len(unspent_inputs))
 
         unspent_inputs.sort(key=lambda x: x['amount'] * x['confirmations'],
                             reverse=True)
@@ -584,7 +601,7 @@ class OpReturn:
             'value': 0,
             'scriptPubKey': '6a' + bin_to_hex(payload)
         }]
-        
+
         txn = Transaction(self.digits, self.use_message, txn=txn_unpacked)
         return bin_to_hex(txn.binary)
 
@@ -610,7 +627,7 @@ class OpReturn:
 
         if metadata_len <= 75:
             # length byte + data (https://en.bitcoin.it/wiki/Script)
-            payload = bytearray((metadata_len,)) + metadata 
+            payload = bytearray((metadata_len,)) + metadata
         elif metadata_len <= 256:
             # OP_PUSHDATA1 format
             payload = b"\x4c" + bytearray((metadata_len,)) + metadata
@@ -1093,7 +1110,7 @@ class BitcoinBuffer():
             self.pack_uint16(number)
         else:
             self.pack_uint8(number)
-        
+
     def pack_uint64(self, number):
         number = int(number)
         self.pack_uint32(number & 0xFFFFFFFF)   # lower
