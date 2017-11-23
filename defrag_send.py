@@ -63,6 +63,8 @@ def main():
                         help="Minimum amount of coin per input")
     parser.add_argument('--max-input', '-I', type=float,
                         help="Maximum amount of coin per input")
+    parser.add_argument('--split', '-s', type=float,
+                        help="Split into chunks")
     args = parser.parse_args()
 
     setupLogging(args.verbose, args.quiet)
@@ -89,7 +91,8 @@ def main():
                         args.max_confirmations)
 
     result = opreturn.defrag_send(args.to, args.amount, args.max_tx,
-                                  args.min_input, args.max_input, args.dryrun)
+                                  args.min_input, args.max_input, args.dryrun,
+                                  args.split)
     if not result:
         logger.info('No transaction made, no inputs available')
     elif 'error' in result:

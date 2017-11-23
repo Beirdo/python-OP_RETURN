@@ -87,7 +87,7 @@ class OpReturn:
         if max_confirmations is not None:
             self.max_confirmations = int(max_confirmations)
 
-    def burn(self, burn_amount, metadata):
+    def burn(self, burn_amount, metadata, dryrun=False):
         # Validate some parameters
         err = self.bitcoin_check()
         if err:
@@ -127,7 +127,9 @@ class OpReturn:
                                        metadata)
 
         # Sign and send the transaction, return result
-        return self.sign_send_txn(raw_txn)
+        if not dryrun:
+            return self.sign_send_txn(raw_txn)
+        return None
 
     def estimate_fee(self, inputs):
         # Estimate
@@ -137,7 +139,7 @@ class OpReturn:
         return txfee
 
     def defrag_send(self, send_address, send_amount, max_count=None,
-                    min_input=None, max_input=None, dryrun=None):
+                    min_input=None, max_input=None, dryrun=None, split=None):
         # Validate some parameters
         err = self.bitcoin_check()
         if err:
@@ -171,11 +173,25 @@ class OpReturn:
         change_amount = inputs_spend['total'] - output_amount
 
         # Build the raw transaction
-        outputs = {send_address: send_amount}
+        if not split:
+            outputs = {send_address: send_amount}
+        else:
+            if not max_count:
+                max_count = 100
+            split = max(split, send_amount / max_count)
+            total_send = send_amount
+            outputs = {send_address: []}
+            while total_send > 0.0:
+                to_send = min(split, total_send)
+                outputs[send_address].append(to_send)
+                total_send -= to_send
 
         if change_amount >= self.dust:
             change_address = self.bitcoin_cmd('getaccountaddress', 'change')
-            outputs[change_address] = change_amount
+            if change_address in outputs:
+                outputs[change_address].append(change_amount)
+            else:
+                outputs[change_address] = change_amount
 
         logger.debug("Inputs to spend: %s" % inputs_spend)
         logger.info("Number of inputs selected: %s" % inputs_spend['count'])
@@ -438,7 +454,7 @@ class OpReturn:
 
         return results
 
-    def select_inputs(self, total_amount, send_address=None, max_amount=None):
+    def select_inputs(self, total_amount, send_address=None, min_input=None, max_input=None, max_amount=None):
         # List and sort unspent inputs by priority
         unspent_inputs = self.bitcoin_cmd('listunspent', 0)
         if not isinstance(unspent_inputs, list):
@@ -1061,7 +1077,7 @@ class BitcoinBuffer():
 
     def pack(self, data):
         self.data += data
-        self.len += len
+        self.len += len(data)
 
     def pack_varint(self, number):
         number = int(number)
@@ -1069,10 +1085,10 @@ class BitcoinBuffer():
         if number > 0xFFFFFFFF:
             self.pack_uint8(0xFF)
             self.pack_uint64(number)
-        elif integer > 0xFFFF:
+        elif number > 0xFFFF:
             self.pack_uint8(0xFE)
             self.pack_uint32(number)
-        elif integer > 0xFC:
+        elif number > 0xFC:
             self.pack_uint8(0xFD)
             self.pack_uint16(number)
         else:
