@@ -66,6 +66,15 @@ def main():
     with open("diffdata-%s.json" % args.coin, "w") as f:
         json.dump(data, f, sort_keys=True, indent=2)
 
+    timedata = []
+    for blockdata in data:
+        item = [blockdata.get("time", 0), blockdata.get('difficulty', 0.0),
+                blockdata.get('entropybit', 0)]
+        timedata.append(item)
+
+    with open("timedata-%s.json" % args.coin, "w") as f:
+        json.dump(data, f, sort_keys=True, indent=2)
+
     return 0
 
 if __name__ == "__main__":
