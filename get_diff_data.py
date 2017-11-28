@@ -76,7 +76,7 @@ def main():
         timedata.append(item)
 
     with open("timedata-%s.json" % args.coin, "w") as f:
-        json.dump(data, f, sort_keys=True, indent=2)
+        json.dump(timedata, f, sort_keys=True, indent=2)
 
     return 0
 
