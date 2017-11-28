@@ -71,8 +71,7 @@ def main():
         if index == 0:
             continue
         timedelta = blockdata.get('time', 0) - data[index - 1].get('time', 0)
-        item = [timedelta, blockdata.get('difficulty', 0.0),
-                blockdata.get('entropybit', 0)]
+        item = [timedelta, blockdata.get('difficulty', 0.0)]
         timedata.append(item)
 
     with open("timedata-%s.json" % args.coin, "w") as f:
