@@ -58,7 +58,7 @@ def main():
     logger.info("Total blocks: %s" % numBlocks)
 
     data = []
-    for block in range(1, numBlocks):
+    for block in range(numBlocks):
         blockhash = opreturn.bitcoin_cmd('getblockhash', block)
         blockdata = opreturn.bitcoin_cmd('getblock', blockhash)
         data.append(blockdata)
@@ -67,8 +67,11 @@ def main():
         json.dump(data, f, sort_keys=True, indent=2)
 
     timedata = []
-    for blockdata in data:
-        item = [blockdata.get("time", 0), blockdata.get('difficulty', 0.0),
+    for (index, blockdata) in enumerate(data):
+        if index == 0:
+            continue
+        timedelta = blockdata.get('time', 0) - data[index - 1].get('time', 0)
+        item = [timedelta, blockdata.get('difficulty', 0.0),
                 blockdata.get('entropybit', 0)]
         timedata.append(item)
 
