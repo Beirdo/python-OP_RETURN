@@ -67,15 +67,22 @@ def main():
         json.dump(data, f, sort_keys=True, indent=2)
 
     timedata = []
+    deltadata = []
     for (index, blockdata) in enumerate(data):
         if index == 0:
             continue
         timedelta = blockdata.get('time', 0) - data[index - 1].get('time', 0)
         item = [timedelta, blockdata.get('difficulty', 0.0)]
+        deltadata.append(item)
+        item = [blockdata.get('time', 0), blockdata.get('difficulty', 0.0)]
         timedata.append(item)
 
     with open("timedata-%s.json" % args.coin, "w") as f:
         json.dump(timedata, f, sort_keys=True, indent=2)
+
+    with open("timedelta-%s.json" % args.coin, "w") as f:
+        json.dump(deltadata, f, sort_keys=True, indent=2)
+
 
     return 0
 
