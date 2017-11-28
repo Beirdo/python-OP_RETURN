@@ -87,7 +87,8 @@ class OpReturn:
         if max_confirmations is not None:
             self.max_confirmations = int(max_confirmations)
 
-    def burn(self, burn_amount, metadata, dryrun=False):
+    def burn(self, burn_amount, metadata,
+             min_input=None, max_input=None, dryrun=None):
         # Validate some parameters
         err = self.bitcoin_check()
         if err:
@@ -107,7 +108,9 @@ class OpReturn:
         # Calculate amounts and choose inputs
         output_amount = burn_amount + self.txfee
 
-        inputs_spend = self.select_inputs(output_amount)
+        inputs_spend = self.select_inputs(output_amount,
+                                          min_input=min_input,
+                                          max_input=max_input)
         err = inputs_spend.get('error', None)
         if err:
             return error_(err)
@@ -126,7 +129,7 @@ class OpReturn:
         logger.debug("Inputs to spend: %s" % inputs_spend)
         logger.info("Number of inputs selected: %s" % inputs_spend['count'])
         logger.info("Burn Amount: %.8f" % burn_amount)
-	logger.info("Outputs: %s" % outputs)
+        logger.info("Outputs: %s" % outputs)
 
         raw_txn = self.create_burn_txn(inputs_spend['inputs'], outputs,
                                        metadata)
@@ -660,8 +663,7 @@ class OpReturn:
         logger.info("Length of raw transaction: %s" % len(raw_txn))
 
         signed_txn = self.bitcoin_cmd('signrawtransaction', raw_txn)
-        complete = signed_txn.get('complete', False)
-        if not complete:
+        if not signed_txn or not signed_txn.get('complete', False):
             return error_('Could not sign the transaction')
 
         with open("rawtransaction.txt", "w") as f:

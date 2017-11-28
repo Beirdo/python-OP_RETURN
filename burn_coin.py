@@ -60,6 +60,10 @@ def main():
                         help='Minimum confirmations')
     parser.add_argument('--max-confirmations', '-D', type=int,
                         help='Maximum confirmations')
+    parser.add_argument('--min-input', '-i', type=float,
+                        help="Minimum amount of coin per input")
+    parser.add_argument('--max-input', '-I', type=float,
+                        help="Maximum amount of coin per input")
     args = parser.parse_args()
 
     setupLogging(args.verbose, args.quiet)
@@ -77,6 +81,12 @@ def main():
     logger.info("min confirms: %s, max confirms: %s" %
                 (args.min_confirmations, args.max_confirmations))
 
+    if args.min_input:
+        logger.info("Min amount per input: %s" % args.min_input)
+
+    if args.max_input:
+        logger.info("Max amount per input: %s" % args.max_input)
+
     logger.info("amount to burn: %s" % args.amount)
 
     opreturn = OpReturn(args.coin, args.testnet, args.digits, args.use_message,
@@ -86,7 +96,8 @@ def main():
     if metadata_from_hex is not None:
         args.message = metadata_from_hex
 
-    result = opreturn.burn(args.amount, args.message, args.dryrun)
+    result = opreturn.burn(args.amount, args.message,
+                           args.min_input, args.max_input, args.dryrun)
     if not result:
         logger.info('No transaction made, no inputs available')
     elif 'error' in result:
