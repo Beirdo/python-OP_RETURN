@@ -509,7 +509,7 @@ class OpReturn:
                 break # stop when we have enough
 
         if input_amount < total_amount:
-            return error_('Not enough funds are available to cover the amount and fee')
+            return error_('Not enough funds are available to cover the amount and fee (%s < %s)' % (input_amount, total_amount))
 
         # Return the successful result
         return {
